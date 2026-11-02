@@ -1,4 +1,5 @@
 <?php
+// db.php - Database connection & session setup
 
 // 1. Start session
 if (session_status() === PHP_SESSION_NONE) {
@@ -16,11 +17,11 @@ if ($is_local) {
     $user = 'root';
     $pass = '';
 } else {
-    // Live Hosting / Production Settings
-    $host = 'YOUR_MYSQL_HOST';
-    $dbname = 'YOUR_MYSQL_DATABASE';
-    $user = 'YOUR_MYSQL_USER';
-    $pass = 'YOUR_MYSQL_PASSWORD';
+    // Live Hosting (InfinityFree)
+    $host = 'sql302.infinityfree.com';
+    $dbname = 'if0_43149342_Quaddit';
+    $user = 'if0_43149342';
+    $pass = 'Quaddit007';
 }
 
 // 3. Connect to MySQL using MySQLi
