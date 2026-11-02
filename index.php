@@ -25,16 +25,14 @@ function time_ago(?string $datetime): string {
 
 function upload_post_images(?array $files, int $postId, mysqli $conn): void {
     if (empty($files['name'][0])) return;
-    $dir = __DIR__ . '/assets/uploads/';
-    if (!is_dir($dir)) mkdir($dir, 0777, true);
     for ($i = 0; $i < min(count($files['name']), 4); $i++) {
         if (($files['error'][$i] ?? 1) === UPLOAD_ERR_OK) {
+            $tmp = $files['tmp_name'][$i];
             $ext = strtolower(pathinfo($files['name'][$i], PATHINFO_EXTENSION));
             if (in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
-                $name = "post_{$postId}_" . time() . "_{$i}.$ext";
-                if (move_uploaded_file($files['tmp_name'][$i], $dir . $name)) {
-                    $conn->execute_query("INSERT INTO post_images (post_id, image_url) VALUES (?, ?)", [$postId, "assets/uploads/$name"]);
-                }
+                $mime = mime_content_type($tmp) ?: "image/$ext";
+                $base64 = 'data:' . $mime . ';base64,' . base64_encode(file_get_contents($tmp));
+                $conn->execute_query("INSERT INTO post_images (post_id, image_url) VALUES (?, ?)", [$postId, $base64]);
             }
         }
     }
@@ -199,7 +197,7 @@ if ($action === 'edit_post') {
         foreach ((array)($_POST['delete_image_ids'] ?? []) as $id) {
             $img = $conn->execute_query("SELECT image_url FROM post_images WHERE id = ? AND post_id = ?", [(int)$id, $postId])->fetch_assoc();
             if ($img) {
-                @unlink(__DIR__ . '/' . $img['image_url']);
+                if (str_starts_with($img['image_url'], 'assets/')) @unlink(__DIR__ . '/' . $img['image_url']);
                 $conn->execute_query("DELETE FROM post_images WHERE id = ?", [(int)$id]);
             }
         }
@@ -215,7 +213,7 @@ if ($action === 'delete_post') {
     if ($conn->execute_query("SELECT id FROM posts WHERE id = ? AND user_id = ?", [$postId, $currentUser['id']])->fetch_assoc()) {
         $imgResult = $conn->execute_query("SELECT image_url FROM post_images WHERE post_id = ?", [$postId]);
         while ($img = $imgResult->fetch_assoc()) {
-            @unlink(__DIR__ . '/' . $img['image_url']);
+            if (str_starts_with($img['image_url'], 'assets/')) @unlink(__DIR__ . '/' . $img['image_url']);
         }
         $conn->execute_query("DELETE FROM posts WHERE id = ?", [$postId]);
     }

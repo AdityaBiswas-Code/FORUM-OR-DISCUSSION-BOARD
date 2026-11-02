@@ -58,23 +58,19 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && ($_POST['action'] ?? '') ==
     if ($name === '') {
         $errorMsg = 'Display Name cannot be empty.';
     } else {
-        $dir = __DIR__ . '/assets/uploads/';
-        if (!is_dir($dir)) mkdir($dir, 0777, true);
-        $allowed = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
-
-        $uploadFile = function(?array $file, string $prefix) use ($profileId, $dir, $allowed): ?string {
+        $toBase64 = function(?array $file): ?string {
             if (!empty($file) && ($file['error'] ?? 1) === UPLOAD_ERR_OK) {
                 $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-                if (in_array($ext, $allowed)) {
-                    $fn = "{$prefix}_{$profileId}_" . time() . ".$ext";
-                    if (move_uploaded_file($file['tmp_name'], $dir . $fn)) return "assets/uploads/$fn";
+                if (in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
+                    $mime = mime_content_type($file['tmp_name']) ?: "image/$ext";
+                    return 'data:' . $mime . ';base64,' . base64_encode(file_get_contents($file['tmp_name']));
                 }
             }
             return null;
         };
 
-        $newAvatar = $uploadFile($_FILES['avatar'] ?? null, 'avatar');
-        $newBanner = $uploadFile($_FILES['banner'] ?? null, 'banner');
+        $newAvatar = $toBase64($_FILES['avatar'] ?? null);
+        $newBanner = $toBase64($_FILES['banner'] ?? null);
 
         $updateSql = "UPDATE users SET name = ?, bio = ?";
         $params = [$name, $bio];
