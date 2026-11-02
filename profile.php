@@ -145,6 +145,7 @@ $recentDiscussions = $conn->query("
 ")->fetch_all(MYSQLI_ASSOC);
 ?>
 
+
 <!-- ========================================
 HTML PART
 ======================================== -->
