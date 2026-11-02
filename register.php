@@ -1,7 +1,6 @@
 <?php
 require_once __DIR__ . '/db.php';
 
-// Redirect to home if already logged in
 if (is_logged_in()) {
     header("Location: index.php");
     exit;
@@ -9,47 +8,35 @@ if (is_logged_in()) {
 
 $error = '';
 
-// Handle form submission
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
-    $name = trim($_POST['name'] ?? '');
+    $name     = trim($_POST['name'] ?? '');
     $username = trim($_POST['username'] ?? '');
-    $email = trim($_POST['email'] ?? '');
+    $email    = trim($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
-    $confirm_password = $_POST['confirm_password'] ?? '';
+    $confirm  = $_POST['confirm_password'] ?? '';
 
-    // 1. Validation checks
-    if (empty($username) || empty($email) || empty($password) || empty($confirm_password)) {
+    if (!$username || !$email || !$password || !$confirm) {
         $error = 'Please fill in all required fields.';
-    } elseif ($password !== $confirm_password) {
+    } elseif ($username !== strtolower($username)) {
+        $error = 'Username must be in small letters.';
+    } elseif ($password !== $confirm) {
         $error = 'Passwords do not match.';
     } elseif (strlen($password) < 6) {
         $error = 'Password must be at least 6 characters.';
+    } elseif (strlen($password) > 255) {
+        $error = 'Password cannot exceed 255 characters.';
     } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $error = 'Please enter a valid email address.';
+    } elseif ($conn->execute_query("SELECT id FROM users WHERE username = ? OR email = ? LIMIT 1", [$username, $email])->fetch_assoc()) {
+        $error = 'Username or email is already taken.';
     } else {
-        // 2. Check if username or email already exists
-        $check = $conn->execute_query(
-            "SELECT id FROM users WHERE username = ? OR email = ?",
-            [$username, $email]
+        $conn->execute_query(
+            "INSERT INTO users (username, email, password, name, avatar, created_at) VALUES (?, ?, ?, ?, 'assets/images/avatar_default.svg', NOW())",
+            [$username, $email, password_hash($password, PASSWORD_DEFAULT), $name ?: $username]
         );
-
-        if ($check->fetch_assoc()) {
-            $error = 'Username or email is already taken.';
-        } else {
-            // 3. Insert new user into database
-            $displayName = !empty($name) ? $name : $username;
-            $avatar = 'assets/images/avatar_default.svg';
-
-            $conn->execute_query(
-                "INSERT INTO users (username, email, password, name, avatar, created_at) VALUES (?, ?, ?, ?, ?, NOW())",
-                [$username, $email, $password, $displayName, $avatar]
-            );
-
-            // 4. Log in the new user and redirect to home
-            $_SESSION['user_id'] = (int)$conn->insert_id;
-            header("Location: index.php");
-            exit;
-        }
+        $_SESSION['user_id'] = (int)$conn->insert_id;
+        header("Location: index.php");
+        exit;
     }
 }
 ?>
@@ -153,7 +140,7 @@ HTML PART
             <circle cx="12" cy="12" r="4"></circle>
             <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"></path>
           </svg>
-          <input type="text" name="username" class="auth-input" placeholder="Choose a username (e.g. aditya)" value="<?= isset($_POST['username']) ? e($_POST['username']) : '' ?>" autocomplete="username" required>
+          <input type="text" name="username" class="auth-input" placeholder="Choose a username (e.g. aditya)" value="<?= isset($_POST['username']) ? e($_POST['username']) : '' ?>" autocomplete="username" autocapitalize="none" oninput="this.value = this.value.toLowerCase()" required>
         </div>
 
         <!-- Email input -->
