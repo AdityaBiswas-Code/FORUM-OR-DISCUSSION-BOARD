@@ -226,6 +226,7 @@ HTML PART
   </script>
 </head>
 <body>
+<?php require_once __DIR__ . '/includes/mobile-nav.php'; ?>
 
 <div class="app-container">
   
