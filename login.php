@@ -1,50 +1,27 @@
 <?php
-// login.php - CampusForum Login Screen
 require_once __DIR__ . '/db.php';
 
-// If already logged in, redirect directly to index.php
 if (is_logged_in()) {
     header("Location: index.php");
     exit;
 }
 
 $error = '';
-$success = '';
-
-if (isset($_GET['registered'])) {
-    $success = 'Account created successfully! Please log in to continue.';
-} elseif (isset($_GET['logged_out'])) {
-    $success = 'You have signed out successfully.';
-} elseif (isset($_GET['reset'])) {
-    $success = 'Password has been reset successfully! Please log in with your new password.';
-}
-
+$success = isset($_GET['registered']) ? 'Account created! Please log in.' : (isset($_GET['logged_out']) ? 'You have signed out.' : '');
 $login_input = trim($_GET['username'] ?? '');
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     $action = $_POST['action'] ?? 'login';
 
-    if ($action === 'bypass_login' || $action === 'reset_password') {
-        $bypass_email = trim($_POST['bypass_email'] ?? $_POST['reset_user'] ?? $_POST['login_input'] ?? '');
-
-        if (empty($bypass_email)) {
-            $error = 'Please enter your registered email or username to log in.';
-        } else {
-            // Prototype bypass: find user by email, username, or name and log in directly
-            $result = $conn->execute_query(
-                "SELECT * FROM users WHERE LOWER(TRIM(email)) = LOWER(?) OR LOWER(TRIM(username)) = LOWER(?) OR LOWER(TRIM(name)) = LOWER(?) LIMIT 1",
-                [$bypass_email, $bypass_email, $bypass_email]
-            );
-            $user = $result->fetch_assoc();
-
-            if ($user) {
-                $_SESSION['user_id'] = (int)$user['id'];
-                header("Location: index.php");
-                exit;
-            } else {
-                $error = 'No user account found matching "' . e($bypass_email) . '".';
-            }
+    if ($action === 'bypass_login') {
+        $input = trim($_POST['bypass_email'] ?? '');
+        $user = $conn->execute_query("SELECT id FROM users WHERE username = ? OR email = ? LIMIT 1", [$input, $input])->fetch_assoc();
+        if ($user) {
+            $_SESSION['user_id'] = (int)$user['id'];
+            header("Location: index.php");
+            exit;
         }
+        $error = 'No user account found.';
     } else {
         $login_input = trim($_POST['login_input'] ?? '');
         $password = $_POST['password'] ?? '';
@@ -52,29 +29,18 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         if (empty($login_input) || empty($password)) {
             $error = 'Please fill in all fields.';
         } else {
-            // Support login by username, email, or full name
-            $result = $conn->execute_query(
-                "SELECT * FROM users WHERE LOWER(TRIM(username)) = LOWER(?) OR LOWER(TRIM(email)) = LOWER(?) OR LOWER(TRIM(name)) = LOWER(?) LIMIT 1",
-                [$login_input, $login_input, $login_input]
-            );
-            $user = $result->fetch_assoc();
+            $user = $conn->execute_query("SELECT * FROM users WHERE username = ? OR email = ? LIMIT 1", [$login_input, $login_input])->fetch_assoc();
 
-            $passwordMatches = false;
-            if ($user) {
+            if ($user && (password_verify($password, $user['password']) || $user['password'] === $password)) {
+                // If legacy plain-text, upgrade to hash
                 if ($user['password'] === $password) {
-                    $passwordMatches = true;
-                } elseif (password_verify($password, $user['password'])) {
-                    $passwordMatches = true;
+                    $conn->execute_query("UPDATE users SET password = ? WHERE id = ?", [password_hash($password, PASSWORD_DEFAULT), $user['id']]);
                 }
-            }
-
-            if ($user && $passwordMatches) {
                 $_SESSION['user_id'] = (int)$user['id'];
                 header("Location: index.php");
                 exit;
-            } else {
-                $error = 'Invalid email/username or password.';
             }
+            $error = 'Invalid username/email or password.';
         }
     }
 }
