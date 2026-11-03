@@ -1,74 +1,51 @@
 <?php
-
 require_once __DIR__ . '/db.php';
 
-// ========================================================
-// 1. SESSION & CURRENT USER SETUP
-// ========================================================
 if (empty($_SESSION['user_id'])) {
     header("Location: login.php");
     exit;
 }
 
-// Fetch current user details
-$result = $conn->execute_query("SELECT id, username, email, name, avatar, role, bio FROM users WHERE id = ?", [$_SESSION['user_id']]);
-$currentUser = $result->fetch_assoc();
-
+$currentUser = $conn->execute_query("SELECT id, username, email, name, avatar, role, bio FROM users WHERE id = ?", [$_SESSION['user_id']])->fetch_assoc();
 if (!$currentUser) {
     unset($_SESSION['user_id']);
     header("Location: login.php");
     exit;
 }
 
-// ========================================================
-// 2. HELPER FUNCTIONS
-// ========================================================
-if (!function_exists('e')) {
-    function e(?string $str = ''): string {
-        return htmlspecialchars($str ?? '', ENT_QUOTES, 'UTF-8');
-    }
-}
-
 function time_ago(?string $datetime): string {
-    if (empty($datetime)) return 'just now';
-    $diff = time() - strtotime($datetime);
-    if ($diff < 60) return 'just now';
-    if ($diff < 3600) return floor($diff / 60) . 'm ago';
-    if ($diff < 86400) return floor($diff / 3600) . 'h ago';
-    if ($diff < 604800) return floor($diff / 86400) . 'd ago';
+    if (!$datetime) return 'just now';
+    $d = time() - strtotime($datetime);
+    if ($d < 60) return 'just now';
+    if ($d < 3600) return floor($d / 60) . 'm ago';
+    if ($d < 86400) return floor($d / 3600) . 'h ago';
+    if ($d < 604800) return floor($d / 86400) . 'd ago';
     return date('M j, Y', strtotime($datetime));
 }
 
-// Upload multiple images for a post (max 4)
-function upload_post_images(?array $files, int $post_id, mysqli $conn): void {
-    if (empty($files) || empty($files['name'][0])) return;
-    $dir = __DIR__ . '/assets/uploads/';
-    if (!is_dir($dir)) mkdir($dir, 0777, true);
-    $allowed = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+function upload_post_images(?array $files, int $postId, mysqli $conn): void {
+    if (empty($files['name'][0])) return;
     for ($i = 0; $i < min(count($files['name']), 4); $i++) {
-        if ($files['error'][$i] === UPLOAD_ERR_OK) {
+        if (($files['error'][$i] ?? 1) === UPLOAD_ERR_OK) {
+            $tmp = $files['tmp_name'][$i];
             $ext = strtolower(pathinfo($files['name'][$i], PATHINFO_EXTENSION));
-            if (in_array($ext, $allowed)) {
-                $name = 'post_' . $post_id . '_' . time() . '_' . $i . '.' . $ext;
-                if (move_uploaded_file($files['tmp_name'][$i], $dir . $name)) {
-                    $conn->execute_query("INSERT INTO post_images (post_id, image_url) VALUES (?, ?)", [$post_id, 'assets/uploads/' . $name]);
-                }
+            if (in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
+                $mime = mime_content_type($tmp) ?: "image/$ext";
+                $base64 = 'data:' . $mime . ';base64,' . base64_encode(file_get_contents($tmp));
+                $conn->execute_query("INSERT INTO post_images (post_id, image_url) VALUES (?, ?)", [$postId, $base64]);
             }
         }
     }
 }
 
-// Upload a single image for a reply
 function upload_single_image(?array $file): ?string {
-    if (empty($file) || $file['error'] !== UPLOAD_ERR_OK) return null;
+    if (empty($file) || ($file['error'] ?? 1) !== UPLOAD_ERR_OK) return null;
     $dir = __DIR__ . '/assets/uploads/';
     if (!is_dir($dir)) mkdir($dir, 0777, true);
     $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
     if (in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
-        $name = 'reply_' . time() . '_' . rand(100, 999) . '.' . $ext;
-        if (move_uploaded_file($file['tmp_name'], $dir . $name)) {
-            return 'assets/uploads/' . $name;
-        }
+        $name = 'reply_' . time() . '_' . rand(100, 999) . ".$ext";
+        if (move_uploaded_file($file['tmp_name'], $dir . $name)) return "assets/uploads/$name";
     }
     return null;
 }
@@ -179,7 +156,7 @@ function renderReplyNode(array $rep, array $childrenByParent, array $repliesById
         </div>
       </div>
 
-      <!-- Threaded Sub-Replies (Directly Below Parent Reply) -->
+      <!-- Threaded Sub-Replies -->
       <?php if (!empty($children)): ?>
         <div class="reply-children-list">
           <?php foreach ($children as $child): ?>
@@ -191,105 +168,83 @@ function renderReplyNode(array $rep, array $childrenByParent, array $repliesById
     <?php
 }
 
-// ========================================================
-// 3. ACTION HANDLERS (POST, EDIT, DELETE, REPLY, LIKE)
-// ========================================================
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 
-// 3.1 Create Post
+// Create Post
 if ($action === 'create_post') {
     $title   = trim($_POST['title'] ?? '');
     $content = trim($_POST['content'] ?? '');
-
     if ($title !== '' && $content !== '') {
         $conn->execute_query("INSERT INTO posts (user_id, title, content, created_at) VALUES (?, ?, ?, NOW())", [$currentUser['id'], $title, $content]);
-        $post_id = (int)$conn->insert_id;
-        upload_post_images($_FILES['images'] ?? null, $post_id, $conn);
-        header("Location: index.php?msg=created#post-$post_id");
+        $postId = (int)$conn->insert_id;
+        upload_post_images($_FILES['images'] ?? null, $postId, $conn);
+        header("Location: index.php?msg=created#post-$postId");
         exit;
     }
     header("Location: index.php?error=empty_fields");
     exit;
 }
 
-// 3.2 Edit Post
+// Edit Post
 if ($action === 'edit_post') {
-    $postId   = (int)($_POST['post_id'] ?? 0);
-    $title    = trim($_POST['title'] ?? '');
-    $content  = trim($_POST['content'] ?? '');
-    $deleteIds = (array)($_POST['delete_image_ids'] ?? []);
-
-    // Check ownership in SQL
+    $postId  = (int)($_POST['post_id'] ?? 0);
+    $title   = trim($_POST['title'] ?? '');
+    $content = trim($_POST['content'] ?? '');
     $isOwner = $conn->execute_query("SELECT id FROM posts WHERE id = ? AND user_id = ?", [$postId, $currentUser['id']])->fetch_assoc();
 
     if ($isOwner && $title !== '' && $content !== '') {
         $conn->execute_query("UPDATE posts SET title = ?, content = ?, updated_at = NOW() WHERE id = ?", [$title, $content, $postId]);
-
-        // Remove deleted images
-        foreach ($deleteIds as $id) {
+        foreach ((array)($_POST['delete_image_ids'] ?? []) as $id) {
             $img = $conn->execute_query("SELECT image_url FROM post_images WHERE id = ? AND post_id = ?", [(int)$id, $postId])->fetch_assoc();
             if ($img) {
-                @unlink(__DIR__ . '/' . $img['image_url']);
+                if (str_starts_with($img['image_url'], 'assets/')) @unlink(__DIR__ . '/' . $img['image_url']);
                 $conn->execute_query("DELETE FROM post_images WHERE id = ?", [(int)$id]);
             }
         }
-
-        // Upload any newly selected images
         upload_post_images($_FILES['images'] ?? null, $postId, $conn);
     }
-
     header("Location: index.php?post=$postId#post-$postId");
     exit;
 }
 
-// 3.3 Delete Post
+// Delete Post
 if ($action === 'delete_post') {
-    $post_id = (int)($_REQUEST['id'] ?? $_POST['post_id'] ?? 0);
-    $post = $conn->execute_query("SELECT user_id FROM posts WHERE id = ?", [$post_id])->fetch_assoc();
-
-    if ($post && (int)$post['user_id'] === (int)$currentUser['id']) {
-        $imgResult = $conn->execute_query("SELECT image_url FROM post_images WHERE post_id = ?", [$post_id]);
+    $postId = (int)($_REQUEST['id'] ?? $_POST['post_id'] ?? 0);
+    if ($conn->execute_query("SELECT id FROM posts WHERE id = ? AND user_id = ?", [$postId, $currentUser['id']])->fetch_assoc()) {
+        $imgResult = $conn->execute_query("SELECT image_url FROM post_images WHERE post_id = ?", [$postId]);
         while ($img = $imgResult->fetch_assoc()) {
-            $file = __DIR__ . '/' . $img['image_url'];
-            if (file_exists($file)) @unlink($file);
+            if (str_starts_with($img['image_url'], 'assets/')) @unlink(__DIR__ . '/' . $img['image_url']);
         }
-        $conn->execute_query("DELETE FROM posts WHERE id = ?", [$post_id]);
+        $conn->execute_query("DELETE FROM posts WHERE id = ?", [$postId]);
     }
     header("Location: index.php?msg=deleted");
     exit;
 }
 
-// 3.4 Create Reply
+// Create Reply
 if ($action === 'create_reply') {
     $postId   = (int)($_POST['post_id'] ?? 0);
     $parentId = !empty($_POST['parent_id']) ? (int)$_POST['parent_id'] : null;
     $content  = trim($_POST['content'] ?? '');
     $imageUrl = upload_single_image($_FILES['reply_image'] ?? null);
 
-    // Save reply if text or image is present
     if ($content !== '' || $imageUrl) {
         $conn->execute_query(
             "INSERT INTO replies (post_id, user_id, parent_id, content, image_url, created_at) VALUES (?, ?, ?, ?, ?, NOW())",
             [$postId, $currentUser['id'], $parentId, $content, $imageUrl]
         );
-        $replyId = (int)$conn->insert_id;
-        header("Location: index.php?post=$postId#reply-$replyId");
+        header("Location: index.php?post=$postId#reply-" . $conn->insert_id);
         exit;
     }
-
     header("Location: index.php?post=$postId#post-$postId");
     exit;
 }
 
-
-// 3.5 Edit Reply
+// Edit Reply
 if ($action === 'edit_reply') {
     $replyId = (int)($_POST['reply_id'] ?? 0);
     $content = trim($_POST['content'] ?? '');
-
-    // Check ownership directly in SQL
     $reply = $conn->execute_query("SELECT post_id FROM replies WHERE id = ? AND user_id = ?", [$replyId, $currentUser['id']])->fetch_assoc();
-
     if ($reply && $content !== '') {
         $conn->execute_query("UPDATE replies SET content = ?, updated_at = NOW() WHERE id = ?", [$content, $replyId]);
         header("Location: index.php?post={$reply['post_id']}#reply-$replyId");
@@ -299,17 +254,12 @@ if ($action === 'edit_reply') {
     exit;
 }
 
-
-// 3.6 Delete Reply
+// Delete Reply
 if ($action === 'delete_reply') {
     $replyId = (int)($_REQUEST['id'] ?? 0);
-    $reply   = $conn->execute_query("SELECT post_id, image_url FROM replies WHERE id = ? AND user_id = ?", [$replyId, $currentUser['id']])->fetch_assoc();
-
+    $reply = $conn->execute_query("SELECT post_id, image_url FROM replies WHERE id = ? AND user_id = ?", [$replyId, $currentUser['id']])->fetch_assoc();
     if ($reply) {
-        // Delete image file if attached
-        if (!empty($reply['image_url'])) {
-            @unlink(__DIR__ . '/' . $reply['image_url']);
-        }
+        if (!empty($reply['image_url'])) @unlink(__DIR__ . '/' . $reply['image_url']);
         $conn->execute_query("DELETE FROM replies WHERE id = ?", [$replyId]);
         header("Location: index.php?post={$reply['post_id']}");
         exit;
@@ -318,44 +268,34 @@ if ($action === 'delete_reply') {
     exit;
 }
 
-
-// 3.7 Toggle Like
+// Toggle Like
 if ($action === 'toggle_like') {
-    $post_id = (int)($_REQUEST['post_id'] ?? 0);
-    $userId  = $currentUser['id'];
-
-    // Check if like exists
-    $existing = $conn->execute_query("SELECT id FROM likes WHERE user_id = ? AND post_id = ? AND reply_id IS NULL", [$userId, $post_id])->fetch_assoc();
+    $postId = (int)($_REQUEST['post_id'] ?? 0);
+    $userId = $currentUser['id'];
+    $existing = $conn->execute_query("SELECT id FROM likes WHERE user_id = ? AND post_id = ? AND reply_id IS NULL", [$userId, $postId])->fetch_assoc();
 
     if ($existing) {
         $conn->execute_query("DELETE FROM likes WHERE id = ?", [$existing['id']]);
         $liked = false;
     } else {
-        $conn->execute_query("INSERT INTO likes (user_id, post_id, created_at) VALUES (?, ?, NOW())", [$userId, $post_id]);
+        $conn->execute_query("INSERT INTO likes (user_id, post_id, created_at) VALUES (?, ?, NOW())", [$userId, $postId]);
         $liked = true;
     }
 
-    // Get updated total likes
-    $count = (int)$conn->execute_query("SELECT COUNT(*) FROM likes WHERE post_id = ? AND reply_id IS NULL", [$post_id])->fetch_row()[0];
+    $count = (int)$conn->execute_query("SELECT COUNT(*) FROM likes WHERE post_id = ? AND reply_id IS NULL", [$postId])->fetch_row()[0];
 
-    // Response for AJAX or regular redirect
     if (!empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
         echo json_encode(['success' => true, 'liked' => $liked, 'count' => $count]);
         exit;
     }
-
-    header("Location: index.php#post-$post_id");
+    header("Location: index.php#post-$postId");
     exit;
 }
 
-
-// ========================================================
-// 4. FETCH DATA FOR VIEW (POSTS, REPLIES)
-// ========================================================
+// Fetch Feed Data
 $search_query   = trim($_GET['q'] ?? '');
 $single_post_id = (int)($_GET['post'] ?? $_GET['id'] ?? 0);
 
-// Base query for posts
 $sql = "
     SELECT p.*, u.name as author_name, u.username as author_username, u.avatar as author_avatar,
            (SELECT COUNT(*) FROM replies r WHERE r.post_id = p.id) as reply_count,
@@ -366,7 +306,6 @@ $sql = "
 ";
 $params = [$currentUser['id']];
 
-// Filter by single post or search term
 if ($single_post_id > 0) {
     $sql .= " WHERE p.id = ?";
     $params[] = $single_post_id;
@@ -379,7 +318,6 @@ if ($single_post_id > 0) {
 $sql .= " ORDER BY p.created_at DESC";
 $posts = $conn->execute_query($sql, $params)->fetch_all(MYSQLI_ASSOC);
 
-// Fetch images and replies for loaded posts
 $postImages     = [];
 $postImagesData = [];
 $repliesByPost  = [];
@@ -388,14 +326,12 @@ $post_ids       = array_column($posts, 'id');
 if (!empty($post_ids)) {
     $placeholders = implode(',', array_fill(0, count($post_ids), '?'));
 
-    // 1. Post images
     $imgResult = $conn->execute_query("SELECT id, post_id, image_url FROM post_images WHERE post_id IN ($placeholders) ORDER BY id ASC", $post_ids);
     while ($row = $imgResult->fetch_assoc()) {
         $postImages[$row['post_id']][]     = $row['image_url'];
         $postImagesData[$row['post_id']][] = ['id' => (int)$row['id'], 'url' => $row['image_url']];
     }
 
-    // 2. Post replies
     $repResult = $conn->execute_query("
         SELECT r.*, u.name as author_name, u.username as author_username, u.avatar as author_avatar
         FROM replies r
@@ -408,19 +344,14 @@ if (!empty($post_ids)) {
     }
 }
 
-    // Top 5 recent discussions for sidebar
-    $recentDiscussions = $conn->query("
-        SELECT p.id, p.title, p.created_at, u.name, u.avatar,
-           (SELECT COUNT(*) FROM replies r WHERE r.post_id = p.id) as reply_count
-        FROM posts p
-        JOIN users u ON p.user_id = u.id
-       ORDER BY p.created_at DESC LIMIT 5
-    ")->fetch_all(MYSQLI_ASSOC);
+$recentDiscussions = $conn->query("
+    SELECT p.id, p.title, p.created_at, u.name, u.avatar,
+       (SELECT COUNT(*) FROM replies r WHERE r.post_id = p.id) as reply_count
+    FROM posts p
+    JOIN users u ON p.user_id = u.id
+    ORDER BY p.created_at DESC LIMIT 5
+")->fetch_all(MYSQLI_ASSOC);
 ?>
-
-
-
-
 
 <!-- ========================================
 HTML PART
@@ -443,6 +374,7 @@ HTML PART
   </script>
 </head>
 <body>
+<?php require_once __DIR__ . '/includes/mobile-nav.php'; ?>
 <div class="app-container">
 
   <!-- ======================================================== -->
