@@ -113,7 +113,8 @@ HTML PART
     <!-- Brand Header -->
     <div class="auth-header-branding">
       <div class="auth-logo-bubbles">
-        <img src="assets/images/logo.jpg?v=3" alt="Quaddit Logo" style="width: 100%; height: 100%; border-radius: 12px; object-fit: cover;">
+        <img src="assets/images/logo-dark-theme.png?v=9" alt="Quaddit Logo" class="logo-for-dark">
+        <img src="assets/images/logo-light-theme.png?v=9" alt="Quaddit Logo" class="logo-for-light">
       </div>
       <h1 class="auth-brand-title">Quad<span>dit</span></h1>
       <p class="auth-tagline">Share ideas. Ask questions. Grow together.</p>
