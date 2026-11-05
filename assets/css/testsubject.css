@@ -3709,7 +3709,11 @@ body.dark {
     border: 1px solid rgba(16, 185, 129, 0.3);
     color: #6ee7b7;
   }
-  
-  
+
+  data-theme="dark" .auth-alert-success {
+    background: rgba(5, 150, 105, 0.15);
+    border: 1px solid rgba(5, 150, 105, 0.3);
+    color: #4ade80;
+  }
 
 
