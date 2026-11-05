@@ -354,7 +354,7 @@ $recentDiscussions = $conn->query("
 ?>
 
 <!-- ========================================
-HTML PART
+HTML PART starts here
 ======================================== -->
 
 <!DOCTYPE html>
