@@ -3721,3 +3721,9 @@ body.dark {
     border: 1px solid rgba(239, 68, 68, 0.3);
     color: #f87171;
   }
+
+  data-theme="dark" div.auth-alert-danger {
+    background: rgba(220, 38, 38, 0.15);
+    border: 1px solid rgba(220, 38, 38, 0.3);
+    color: #f87171;
+  }
