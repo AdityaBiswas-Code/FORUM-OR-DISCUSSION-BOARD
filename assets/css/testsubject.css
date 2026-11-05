@@ -3693,7 +3693,7 @@ body.dark {
    3. Base Element Typography & Elements
    ========================================================================== */
 
-   function upload_single_image(?array $file): ?string {
+   /* function upload_single_image(?array $file): ?string {
     if (empty($file) || ($file['error'] ?? 1) !== UPLOAD_ERR_OK) return null;
     $dir = __DIR__ . '/assets/uploads/';
     if (!is_dir($dir)) mkdir($dir, 0777, true);
@@ -3703,7 +3703,7 @@ body.dark {
         if (move_uploaded_file($file['tmp_name'], $dir . $name)) return "assets/uploads/$name";
     }
     return null;
-  }
+  } */
 
   
 
