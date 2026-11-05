@@ -1,48 +1,27 @@
 <?php
-// login.php - CampusForum Login Screen
 require_once __DIR__ . '/db.php';
 
-// If already logged in, redirect directly to index.php
 if (is_logged_in()) {
     header("Location: index.php");
     exit;
 }
 
 $error = '';
-$success = '';
-
-if (isset($_GET['registered'])) {
-    $success = 'Account created successfully! Please log in to continue.';
-} elseif (isset($_GET['logged_out'])) {
-    $success = 'You have signed out successfully.';
-} elseif (isset($_GET['reset'])) {
-    $success = 'Password has been reset successfully! Please log in with your new password.';
-}
-
+$success = isset($_GET['registered']) ? 'Account created! Please log in.' : (isset($_GET['logged_out']) ? 'You have signed out.' : '');
 $login_input = trim($_GET['username'] ?? '');
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     $action = $_POST['action'] ?? 'login';
 
-    if ($action === 'bypass_login' || $action === 'reset_password') {
-        $bypass_email = trim($_POST['bypass_email'] ?? $_POST['reset_user'] ?? $_POST['login_input'] ?? '');
-
-        if (empty($bypass_email)) {
-            $error = 'Please enter your registered email or username to log in.';
-        } else {
-            // Prototype bypass: find user by email, username, or name and log in directly
-            $stmt = $pdo->prepare("SELECT * FROM users WHERE LOWER(TRIM(email)) = LOWER(?) OR LOWER(TRIM(username)) = LOWER(?) OR LOWER(TRIM(name)) = LOWER(?) LIMIT 1");
-            $stmt->execute([$bypass_email, $bypass_email, $bypass_email]);
-            $user = $stmt->fetch();
-
-            if ($user) {
-                $_SESSION['user_id'] = (int)$user['id'];
-                header("Location: index.php");
-                exit;
-            } else {
-                $error = 'No user account found matching "' . e($bypass_email) . '".';
-            }
+    if ($action === 'bypass_login') {
+        $input = trim($_POST['bypass_email'] ?? '');
+        $user = $conn->execute_query("SELECT id FROM users WHERE username = ? OR email = ? LIMIT 1", [$input, $input])->fetch_assoc();
+        if ($user) {
+            $_SESSION['user_id'] = (int)$user['id'];
+            header("Location: index.php");
+            exit;
         }
+        $error = 'No user account found.';
     } else {
         $login_input = trim($_POST['login_input'] ?? '');
         $password = $_POST['password'] ?? '';
@@ -50,38 +29,42 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         if (empty($login_input) || empty($password)) {
             $error = 'Please fill in all fields.';
         } else {
-            // Support login by username, email, or full name
-            $stmt = $pdo->prepare("SELECT * FROM users WHERE LOWER(TRIM(username)) = LOWER(?) OR LOWER(TRIM(email)) = LOWER(?) OR LOWER(TRIM(name)) = LOWER(?) LIMIT 1");
-            $stmt->execute([$login_input, $login_input, $login_input]);
-            $user = $stmt->fetch();
+            $user = $conn->execute_query("SELECT * FROM users WHERE username = ? OR email = ? LIMIT 1", [$login_input, $login_input])->fetch_assoc();
 
-            $passwordMatches = false;
-            if ($user) {
+            if ($user && (password_verify($password, $user['password']) || $user['password'] === $password)) {
+                // If legacy plain-text, upgrade to hash
                 if ($user['password'] === $password) {
-                    $passwordMatches = true;
-                } elseif (password_verify($password, $user['password'])) {
-                    $passwordMatches = true;
+                    $conn->execute_query("UPDATE users SET password = ? WHERE id = ?", [password_hash($password, PASSWORD_DEFAULT), $user['id']]);
                 }
-            }
-
-            if ($user && $passwordMatches) {
                 $_SESSION['user_id'] = (int)$user['id'];
                 header("Location: index.php");
                 exit;
-            } else {
-                $error = 'Invalid email/username or password.';
             }
+            $error = 'Invalid username/email or password.';
         }
     }
 }
 ?>
+
+
+
+
+
+
+
+<!-- ========================================
+HTML PART
+======================================== -->
+
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Login | Quaddit</title>
-  <link rel="icon" type="image/jpeg" href="assets/images/logo.jpg">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/images/logo-transparent.png?v=7">
+  <link rel="shortcut icon" href="assets/images/favicon.ico?v=7">
   <link rel="stylesheet" href="assets/css/auth.css?v=<?= time() ?>">
   <style>
     /* Direct inline autofill reset to override browser defaults immediately */
@@ -130,7 +113,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     <!-- Brand Header -->
     <div class="auth-header-branding">
       <div class="auth-logo-bubbles">
-        <img src="assets/images/logo.jpg" alt="Quaddit Logo" style="width: 100%; height: 100%; border-radius: 12px; object-fit: cover;">
+        <img src="assets/images/logo-dark-theme.png?v=9" alt="Quaddit Logo" class="logo-for-dark">
+        <img src="assets/images/logo-light-theme.png?v=9" alt="Quaddit Logo" class="logo-for-light">
       </div>
       <h1 class="auth-brand-title">Quad<span>dit</span></h1>
       <p class="auth-tagline">Share ideas. Ask questions. Grow together.</p>

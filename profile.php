@@ -1,111 +1,76 @@
 <?php
-// profile.php - User Profile Page with Posts, Replies, and Discussion Comments Activity
 require_once __DIR__ . '/db.php';
 
-// ========================================================
-// 1. SESSION & CURRENT USER SETUP
-// ========================================================
-$currentUser = null;
-if (!empty($_SESSION['user_id'])) {
-    $stmt = $pdo->prepare("SELECT id, username, email, name, avatar, role, bio, banner_url, created_at FROM users WHERE id = ?");
-    $stmt->execute([$_SESSION['user_id']]);
-    $currentUser = $stmt->fetch();
+if (empty($_SESSION['user_id'])) {
+    header("Location: login.php");
+    exit;
 }
 
+$currentUser = $conn->execute_query("SELECT id, username, email, name, avatar, role, bio, banner_url, created_at FROM users WHERE id = ?", [$_SESSION['user_id']])->fetch_assoc();
 if (!$currentUser) {
     unset($_SESSION['user_id']);
     header("Location: login.php");
     exit;
 }
 
-// Global time_ago helper if not already defined
 if (!function_exists('time_ago')) {
-    /**
-     * Calculate relative time elapsed from a datetime string.
-     *
-     * @param string|null $datetime
-     * @return string
-     */
     function time_ago(?string $datetime): string {
-        if (empty($datetime)) return 'just now';
-        $diff = time() - strtotime($datetime);
-        if ($diff < 60) return 'just now';
-        if ($diff < 3600) return floor($diff / 60) . 'm ago';
-        if ($diff < 86400) return floor($diff / 3600) . 'h ago';
-        if ($diff < 604800) return floor($diff / 86400) . 'd ago';
+        if (!$datetime) return 'just now';
+        $d = time() - strtotime($datetime);
+        if ($d < 60) return 'just now';
+        if ($d < 3600) return floor($d / 60) . 'm ago';
+        if ($d < 86400) return floor($d / 3600) . 'h ago';
+        if ($d < 604800) return floor($d / 86400) . 'd ago';
         return date('M j, Y', strtotime($datetime));
     }
 }
 
-// ========================================================
-// 2. PROFILE TARGET USER RESOLUTION
-// ========================================================
-$profileUser = null;
+// Target User Resolution
 $targetId = (int)($_GET['id'] ?? 0);
 $targetUsername = trim($_GET['u'] ?? '');
+$profileUser = null;
 
 if ($targetId > 0) {
-    $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
-    $stmt->execute([$targetId]);
-    $profileUser = $stmt->fetch();
-} elseif (!empty($targetUsername)) {
-    $stmt = $pdo->prepare("SELECT * FROM users WHERE username = ?");
-    $stmt->execute([$targetUsername]);
-    $profileUser = $stmt->fetch();
-} else {
-    $profileUser = $currentUser;
+    $profileUser = $conn->execute_query("SELECT * FROM users WHERE id = ?", [$targetId])->fetch_assoc();
+} elseif ($targetUsername !== '') {
+    $profileUser = $conn->execute_query("SELECT * FROM users WHERE username = ?", [$targetUsername])->fetch_assoc();
 }
-
 if (!$profileUser) {
     $profileUser = $currentUser;
 }
 
-$isOwnProfile = ($currentUser && (int)$currentUser['id'] === (int)$profileUser['id']);
+$isOwnProfile = ((int)$currentUser['id'] === (int)$profileUser['id']);
 $profileId = (int)$profileUser['id'];
 
-// ========================================================
-// 3. EDIT PROFILE ACTION HANDLER
-// ========================================================
 $errorMsg = '';
-$successMsg = '';
+$successMsg = !empty($_GET['updated']) ? 'Profile updated successfully!' : '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'update_profile') {
+// Update Profile Action
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && ($_POST['action'] ?? '') === 'update_profile') {
     if (!$isOwnProfile) {
-        header("Location: profile.php?id=" . $profileId);
+        header("Location: profile.php?id=$profileId");
         exit;
     }
 
     $name = trim($_POST['name'] ?? '');
     $bio  = trim($_POST['bio'] ?? '');
 
-    if (empty($name)) {
-        $errorMsg = "Display Name cannot be empty.";
+    if ($name === '') {
+        $errorMsg = 'Display Name cannot be empty.';
     } else {
-        $uploadDir = __DIR__ . '/assets/uploads/';
-        if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
-        $allowedExts = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
-
-        $newAvatar = null;
-        if (!empty($_FILES['avatar']) && $_FILES['avatar']['error'] === UPLOAD_ERR_OK) {
-            $ext = strtolower(pathinfo($_FILES['avatar']['name'], PATHINFO_EXTENSION));
-            if (in_array($ext, $allowedExts)) {
-                $avatarFileName = 'avatar_' . $profileId . '_' . time() . '.' . $ext;
-                if (move_uploaded_file($_FILES['avatar']['tmp_name'], $uploadDir . $avatarFileName)) {
-                    $newAvatar = 'assets/uploads/' . $avatarFileName;
+        $toBase64 = function(?array $file): ?string {
+            if (!empty($file) && ($file['error'] ?? 1) === UPLOAD_ERR_OK) {
+                $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+                if (in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
+                    $mime = mime_content_type($file['tmp_name']) ?: "image/$ext";
+                    return 'data:' . $mime . ';base64,' . base64_encode(file_get_contents($file['tmp_name']));
                 }
             }
-        }
+            return null;
+        };
 
-        $newBanner = null;
-        if (!empty($_FILES['banner']) && $_FILES['banner']['error'] === UPLOAD_ERR_OK) {
-            $ext = strtolower(pathinfo($_FILES['banner']['name'], PATHINFO_EXTENSION));
-            if (in_array($ext, $allowedExts)) {
-                $bannerFileName = 'banner_' . $profileId . '_' . time() . '.' . $ext;
-                if (move_uploaded_file($_FILES['banner']['tmp_name'], $uploadDir . $bannerFileName)) {
-                    $newBanner = 'assets/uploads/' . $bannerFileName;
-                }
-            }
-        }
+        $newAvatar = $toBase64($_FILES['avatar'] ?? null);
+        $newBanner = $toBase64($_FILES['banner'] ?? null);
 
         $updateSql = "UPDATE users SET name = ?, bio = ?";
         $params = [$name, $bio];
@@ -122,44 +87,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
         $updateSql .= " WHERE id = ?";
         $params[] = $profileId;
 
-        $stmt = $pdo->prepare($updateSql);
-        $stmt->execute($params);
-
-        header("Location: profile.php?id=" . $profileId . "&updated=1");
+        $conn->execute_query($updateSql, $params);
+        header("Location: profile.php?id=$profileId&updated=1");
         exit;
     }
 }
 
-if (!empty($_GET['updated'])) {
-    $successMsg = "Profile updated successfully!";
-}
+// Counts & Tab Data
+$postCount  = (int)($conn->query("SELECT COUNT(*) FROM posts WHERE user_id = $profileId")->fetch_row()[0] ?? 0);
+$replyCount = (int)($conn->query("SELECT COUNT(*) FROM replies WHERE user_id = $profileId")->fetch_row()[0] ?? 0);
+$tab        = in_array($_GET['tab'] ?? '', ['posts', 'replies']) ? $_GET['tab'] : 'posts';
 
-// Refresh profile user data
-$stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
-$stmt->execute([$profileId]);
-$profileUser = $stmt->fetch() ?: $profileUser;
-if ($isOwnProfile) {
-    $currentUser = $profileUser;
-}
-
-// ========================================================
-// 4. COUNTS & TAB DATA FETCHING
-// ========================================================
-$postCount = (int)$pdo->query("SELECT COUNT(*) FROM posts WHERE user_id = {$profileId}")->fetchColumn();
-$replyCount = (int)$pdo->query("SELECT COUNT(*) FROM replies WHERE user_id = {$profileId}")->fetchColumn();
-
-$tab = $_GET['tab'] ?? 'posts';
-if (!in_array($tab, ['posts', 'replies'])) {
-    $tab = 'posts';
-}
-
-$userPosts = [];
-$postImages = [];
+$userPosts   = [];
+$postImages  = [];
 $userReplies = [];
-$commentsOnPosts = [];
 
 if ($tab === 'posts') {
-    $stmt = $pdo->prepare("
+    $userPosts = $conn->execute_query("
         SELECT p.*, u.name as author_name, u.username as author_username, u.avatar as author_avatar,
                (SELECT COUNT(*) FROM replies r WHERE r.post_id = p.id) as reply_count,
                (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.id AND l.reply_id IS NULL) as like_count
@@ -167,21 +111,18 @@ if ($tab === 'posts') {
         JOIN users u ON p.user_id = u.id
         WHERE p.user_id = ?
         ORDER BY p.created_at DESC
-    ");
-    $stmt->execute([$profileId]);
-    $userPosts = $stmt->fetchAll();
+    ", [$profileId])->fetch_all(MYSQLI_ASSOC);
 
     $p_ids = array_column($userPosts, 'id');
     if (!empty($p_ids)) {
         $in = implode(',', array_fill(0, count($p_ids), '?'));
-        $imgStmt = $pdo->prepare("SELECT post_id, image_url FROM post_images WHERE post_id IN ($in) ORDER BY id ASC");
-        $imgStmt->execute($p_ids);
-        while ($row = $imgStmt->fetch()) {
+        $imgResult = $conn->execute_query("SELECT post_id, image_url FROM post_images WHERE post_id IN ($in) ORDER BY id ASC", $p_ids);
+        while ($row = $imgResult->fetch_assoc()) {
             $postImages[$row['post_id']][] = $row['image_url'];
         }
     }
 } elseif ($tab === 'replies') {
-    $stmt = $pdo->prepare("
+    $userReplies = $conn->execute_query("
         SELECT r.*, 
                p.title as post_title, p.id as post_id, p.content as post_content, p.created_at as post_created_at,
                pu.id as post_author_id, pu.name as post_author_name, pu.username as post_author_username, pu.avatar as post_author_avatar,
@@ -192,28 +133,32 @@ if ($tab === 'posts') {
         JOIN users u ON r.user_id = u.id
         WHERE r.user_id = ?
         ORDER BY r.created_at DESC
-    ");
-    $stmt->execute([$profileId]);
-    $userReplies = $stmt->fetchAll();
+    ", [$profileId])->fetch_all(MYSQLI_ASSOC);
 }
 
-// Fetch Recent Discussions for right sidebar
-$recentDiscussions = $pdo->query("
+$recentDiscussions = $conn->query("
     SELECT p.id, p.title, p.created_at, u.name, u.avatar,
            (SELECT COUNT(*) FROM replies r WHERE r.post_id = p.id) as reply_count
     FROM posts p
     JOIN users u ON p.user_id = u.id
-    ORDER BY p.created_at DESC
-    LIMIT 5
-")->fetchAll();
+    ORDER BY p.created_at DESC LIMIT 5
+")->fetch_all(MYSQLI_ASSOC);
 ?>
+
+
+<!-- ========================================
+HTML PART
+======================================== -->
+
+
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title><?= e($profileUser['name']) ?> (@<?= e($profileUser['username']) ?>) - Quaddit</title>
-  <link rel="icon" type="image/jpeg" href="assets/images/logo.jpg">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/images/logo-transparent.png?v=7">
+  <link rel="shortcut icon" href="assets/images/favicon.ico?v=7">
   <link rel="stylesheet" href="assets/css/style.css?v=<?= filemtime(__DIR__ . '/assets/css/style.css') ?>">
   <script>
     (function() {
@@ -223,6 +168,7 @@ $recentDiscussions = $pdo->query("
   </script>
 </head>
 <body>
+<?php require_once __DIR__ . '/includes/mobile-nav.php'; ?>
 
 <div class="app-container">
   
@@ -234,7 +180,8 @@ $recentDiscussions = $pdo->query("
       <!-- Brand Logo -->
       <a href="index.php" class="brand-header">
         <div class="brand-logo-icon">
-          <img src="assets/images/logo.jpg" alt="Quaddit Logo" class="brand-logo-img">
+          <img src="assets/images/logo-dark-theme.png?v=9" alt="Quaddit Logo" class="brand-logo-img logo-for-dark">
+          <img src="assets/images/logo-light-theme.png?v=9" alt="Quaddit Logo" class="brand-logo-img logo-for-light">
         </div>
         <div class="brand-text">Quad<span>dit</span></div>
       </a>

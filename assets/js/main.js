@@ -6,20 +6,23 @@ function getSavedTheme() {
 }
 
 function updateThemeUI(theme) {
-  const sunIcon = document.querySelector('.theme-icon-sun');
-  const moonIcon = document.querySelector('.theme-icon-moon');
-  const labelText = document.getElementById('theme-label-text');
+  const sunIcons = document.querySelectorAll('.theme-icon-sun');
+  const moonIcons = document.querySelectorAll('.theme-icon-moon');
+  const labelTexts = document.querySelectorAll('.theme-label-text, #theme-label-text');
+  const themeSwitchPill = document.getElementById('mobile-theme-switch-pill');
 
   if (theme === 'light') {
     document.documentElement.setAttribute('data-theme', 'light');
-    if (sunIcon) sunIcon.style.display = 'block';
-    if (moonIcon) moonIcon.style.display = 'none';
-    if (labelText) labelText.textContent = 'Theme: Light';
+    sunIcons.forEach(el => el.style.display = 'block');
+    moonIcons.forEach(el => el.style.display = 'none');
+    labelTexts.forEach(el => el.textContent = 'Theme: Light');
+    if (themeSwitchPill) themeSwitchPill.classList.add('active');
   } else {
     document.documentElement.setAttribute('data-theme', 'dark');
-    if (sunIcon) sunIcon.style.display = 'none';
-    if (moonIcon) moonIcon.style.display = 'block';
-    if (labelText) labelText.textContent = 'Theme: Dark';
+    sunIcons.forEach(el => el.style.display = 'none');
+    moonIcons.forEach(el => el.style.display = 'block');
+    labelTexts.forEach(el => el.textContent = 'Theme: Dark');
+    if (themeSwitchPill) themeSwitchPill.classList.remove('active');
   }
 }
 
@@ -439,3 +442,89 @@ function showToast(message) {
     setTimeout(() => toast.remove(), 300);
   }, 2400);
 }
+
+// 11. X-Style Mobile Interactions
+function openMobileDrawer() {
+  const drawer = document.getElementById('mobile-drawer');
+  const backdrop = document.getElementById('mobile-drawer-backdrop');
+  if (drawer && backdrop) {
+    drawer.classList.add('active');
+    backdrop.classList.add('active');
+    document.body.style.overflow = 'hidden';
+  }
+}
+
+function closeMobileDrawer() {
+  const drawer = document.getElementById('mobile-drawer');
+  const backdrop = document.getElementById('mobile-drawer-backdrop');
+  if (drawer) drawer.classList.remove('active');
+  if (backdrop) backdrop.classList.remove('active');
+  document.body.style.overflow = '';
+}
+
+function toggleMobileSearch() {
+  const searchDrawer = document.getElementById('mobile-bottom-search-drawer');
+  const searchTab = document.getElementById('mobile-bottom-search-tab');
+  if (!searchDrawer) return;
+
+  const isOpen = searchDrawer.classList.contains('open');
+  if (isOpen) {
+    closeMobileSearch();
+  } else {
+    searchDrawer.classList.add('open');
+    if (searchTab) searchTab.classList.add('active');
+    setTimeout(() => {
+      const input = document.getElementById('mobile-search-input');
+      if (input) input.focus();
+    }, 150);
+  }
+}
+
+function closeMobileSearch() {
+  const searchDrawer = document.getElementById('mobile-bottom-search-drawer');
+  const searchTab = document.getElementById('mobile-bottom-search-tab');
+  if (searchDrawer) searchDrawer.classList.remove('open');
+  // keep searchTab active only if there is an active search query
+  if (searchTab) {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (!urlParams.get('q')) {
+      searchTab.classList.remove('active');
+    }
+  }
+}
+
+function submitMobileSearch(e) {
+  const input = document.getElementById('mobile-search-input');
+  if (!input) return true;
+  const val = input.value.trim();
+  if (!val) {
+    e.preventDefault();
+    window.location.href = 'index.php';
+    return false;
+  }
+  return true;
+}
+
+function handleMobilePostClick() {
+  const modal = document.getElementById('create-thread-modal');
+  if (modal) {
+    openCreateThreadModal();
+  } else {
+    window.location.href = 'index.php?compose=1';
+  }
+}
+
+// Check for deep links like compose=1 or settings=1
+document.addEventListener('DOMContentLoaded', () => {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('compose') === '1') {
+    if (typeof openCreateThreadModal === 'function') {
+      setTimeout(() => openCreateThreadModal(), 200);
+    }
+  }
+  if (params.get('settings') === '1') {
+    if (typeof openEditProfileModal === 'function') {
+      setTimeout(() => openEditProfileModal(), 200);
+    }
+  }
+});
