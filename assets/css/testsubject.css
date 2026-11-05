@@ -3727,3 +3727,9 @@ body.dark {
     border: 1px solid rgba(220, 38, 38, 0.3);
     color: #f87171;
   }
+
+  div.auth-alert-warning {
+    background: rgba(245, 158, 11, 0.15);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    color: #fbbf24;
+  }
